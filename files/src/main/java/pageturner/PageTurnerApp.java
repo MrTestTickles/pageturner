@@ -87,6 +87,9 @@ public class PageTurnerApp extends Application {
             } else if (e.getCode() == KeyCode.L && e.isShortcutDown()) {
                 openLibraryDialog();
                 e.consume();
+            } else if ((e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.DELETE) && !(e.getTarget() instanceof javafx.scene.control.TextInputControl)) {
+                triggerClearHighlight();
+                e.consume();
             }
         });
 
@@ -480,7 +483,7 @@ public class PageTurnerApp extends Application {
 
         var clrBtn = btn("\u2715 Clear", this::triggerClearHighlight);
         clrBtn.setStyle("-fx-font-size: 11px;");
-        clrBtn.setTooltip(new Tooltip("Remove highlight under selection"));
+        clrBtn.setTooltip(new Tooltip("Remove highlight under selection [Delete / Backspace]"));
 
         return new ToolBar(
             libraryBtn,

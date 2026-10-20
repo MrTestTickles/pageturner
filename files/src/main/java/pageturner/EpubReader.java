@@ -315,15 +315,22 @@ class EpubReaderImpl implements EpubReader {
                 "    var ids = [];" +
                 "    for (var i = 0; i < targets.length; i++) {" +
                 "      var t = targets[i];" +
-                "      var id = t.dataset.hlId;" +
+                "      var id = t.dataset.hlId || t.getAttribute('data-hl-id');" +
                 "      if (id && ids.indexOf(id) === -1) ids.push(id);" +
-                "      var parent = t.parentNode;" +
-                "      if (parent) {" +
-                "        while (t.firstChild) parent.insertBefore(t.firstChild, t);" +
-                "        parent.removeChild(t);" +
+                "    }" +
+                "    for (var k = 0; k < ids.length; k++) {" +
+                "      var matching = document.querySelectorAll('[data-hl-id=\"' + ids[k] + '\"]');" +
+                "      for (var j = 0; j < matching.length; j++) {" +
+                "        var el = matching[j];" +
+                "        var parent = el.parentNode;" +
+                "        if (parent) {" +
+                "          while (el.firstChild) parent.insertBefore(el.firstChild, el);" +
+                "          parent.removeChild(el);" +
+                "        }" +
                 "      }" +
                 "    }" +
                 "    window.__ptLastClickedHighlight = null;" +
+                "    if (sel) sel.removeAllRanges();" +
                 "    return ids.join(',');" +
                 "  }" +
                 "  return null;" +
@@ -468,16 +475,18 @@ class EpubReaderImpl implements EpubReader {
             "}" +
             "</style>" +
             "<script>" +
-            "document.addEventListener('click', function(e) {\n" +
-            "  var p = e.target;\n" +
-            "  while (p && p !== document.body) {\n" +
-            "    if (p.classList && (p.classList.contains('pt-highlight') || p.classList.contains('pt-underline'))) {\n" +
-            "      window.__ptLastClickedHighlight = p;\n" +
-            "      return;\n" +
-            "    }\n" +
-            "    p = p.parentElement;\n" +
-            "  }\n" +
-            "}, true);\n" +
+            "function ptTrackClick(e) {" +
+            "  var p = e.target;" +
+            "  while (p && p !== document.body) {" +
+            "    if (p.classList && (p.classList.contains('pt-highlight') || p.classList.contains('pt-underline'))) {" +
+            "      window.__ptLastClickedHighlight = p;" +
+            "      return;" +
+            "    }" +
+            "    p = p.parentElement;" +
+            "  }" +
+            "}" +
+            "document.addEventListener('click', ptTrackClick, true);" +
+            "document.addEventListener('mouseup', ptTrackClick, true);" +
             "// Suppress default webkit arrow scrolling to ensure instantaneous 2-page turns\n" +
             "window.addEventListener('keydown', function(e) {\n" +
             "  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'PageDown' || e.key === 'PageUp') {\n" +

@@ -375,7 +375,7 @@ public class PdfReaderImpl implements EpubReader {
           }
         </style>
         <script>
-        document.addEventListener('click', function(e) {
+        function ptTrackClick(e) {
           var p = e.target;
           while (p && p !== document.body) {
             if (p.dataset && p.dataset.hlId) {
@@ -384,7 +384,9 @@ public class PdfReaderImpl implements EpubReader {
             }
             p = p.parentElement;
           }
-        }, true);
+        }
+        document.addEventListener('click', ptTrackClick, true);
+        document.addEventListener('mouseup', ptTrackClick, true);
 
         window.addEventListener('keydown', function(e) {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'PageDown' || e.key === 'PageUp') {
@@ -685,6 +687,7 @@ public class PdfReaderImpl implements EpubReader {
                 "    }" +
                 "  }" +
                 "  window.__ptLastClickedHlId = null;" +
+                "  if (sel) sel.removeAllRanges();" +
                 "  return ids.join(',');" +
                 "})();";
 
