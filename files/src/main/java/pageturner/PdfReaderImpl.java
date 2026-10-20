@@ -24,7 +24,7 @@ import java.util.function.Consumer;
 /**
  * Dual-page PDF reader rendering high-resolution spreads side-by-side with
  * central book spine shadow, page badges, background disk caching, and
- * full coordinate-mapped text selection for highlights and underlines.
+ * precise word-level coordinate mapping for highlights and underlines.
  */
 public class PdfReaderImpl implements EpubReader {
 
@@ -49,25 +49,50 @@ public class PdfReaderImpl implements EpubReader {
         return t;
     });
 
-    private final Map<Integer, List<TextLine>> textLineCache = new ConcurrentHashMap<>();
+    private final Map<Integer, List<Word>> wordCache = new ConcurrentHashMap<>();
     private List<Highlight> savedHighlights = new ArrayList<>();
 
-    record TextLine(String text, float x, float y, float width, float height) {}
+    record Word(String text, float x, float y, float width, float height, int charStart, int charEnd) {}
 
-    static class LineExtractor extends PDFTextStripper {
-        final List<TextLine> lines = new ArrayList<>();
-        LineExtractor() throws IOException { super(); }
+    static class WordExtractor extends PDFTextStripper {
+        final List<Word> words = new ArrayList<>();
+        int charCounter = 0;
+        WordExtractor() throws IOException { super(); }
+
         @Override
         protected void writeString(String string, List<TextPosition> textPositions) throws IOException {
-            if (!textPositions.isEmpty() && !string.trim().isEmpty()) {
-                TextPosition first = textPositions.get(0);
-                TextPosition last = textPositions.get(textPositions.size() - 1);
-                float x = first.getXDirAdj();
-                float y = first.getYDirAdj();
-                float w = (last.getXDirAdj() + last.getWidthDirAdj()) - first.getXDirAdj();
-                float h = first.getHeightDir();
-                lines.add(new TextLine(string, x, y, Math.max(1f, w), Math.max(1f, h)));
+            StringBuilder curWord = new StringBuilder();
+            float startX = 0, startY = 0, h = 0, endX = 0;
+            int startChar = 0;
+            boolean inWord = false;
+
+            for (TextPosition tp : textPositions) {
+                String c = tp.getUnicode();
+                if (c == null || c.isBlank()) {
+                    if (inWord) {
+                        words.add(new Word(curWord.toString(), startX, startY, Math.max(1f, endX - startX), h, startChar, charCounter));
+                        curWord.setLength(0);
+                        inWord = false;
+                    }
+                    charCounter++;
+                } else {
+                    if (!inWord) {
+                        startX = tp.getXDirAdj();
+                        startY = tp.getYDirAdj();
+                        h = tp.getHeightDir();
+                        startChar = charCounter;
+                        inWord = true;
+                    }
+                    curWord.append(c);
+                    endX = tp.getXDirAdj() + tp.getWidthDirAdj();
+                    h = Math.max(h, tp.getHeightDir());
+                    charCounter++;
+                }
             }
+            if (inWord && curWord.length() > 0) {
+                words.add(new Word(curWord.toString(), startX, startY, Math.max(1f, endX - startX), h, startChar, charCounter));
+            }
+            charCounter++;
         }
     }
 
@@ -93,7 +118,7 @@ public class PdfReaderImpl implements EpubReader {
         unload();
         currentPdfPath = pdf;
         active = true;
-        textLineCache.clear();
+        wordCache.clear();
 
         doc = Loader.loadPDF(pdf.toFile());
         renderer = new PDFRenderer(doc);
@@ -172,13 +197,13 @@ public class PdfReaderImpl implements EpubReader {
 
     private String buildTextOverlay(int pageIndex) {
         if (pageIndex >= totalPages) return "";
-        List<TextLine> lines = textLineCache.computeIfAbsent(pageIndex, idx -> {
+        List<Word> words = wordCache.computeIfAbsent(pageIndex, idx -> {
             try {
-                LineExtractor ex = new LineExtractor();
+                WordExtractor ex = new WordExtractor();
                 ex.setStartPage(idx + 1);
                 ex.setEndPage(idx + 1);
                 ex.getText(doc);
-                return ex.lines;
+                return ex.words;
             } catch (Exception e) {
                 return List.of();
             }
@@ -188,16 +213,20 @@ public class PdfReaderImpl implements EpubReader {
         float pageH = doc.getPage(pageIndex).getMediaBox().getHeight();
 
         StringBuilder sb = new StringBuilder();
-        for (TextLine tl : lines) {
-            float leftPct = (tl.x() / pageW) * 100f;
-            float topPct  = ((tl.y() - tl.height()) / pageH) * 100f;
-            float wPct    = (tl.width() / pageW) * 100f;
-            float hPct    = (tl.height() / pageH) * 100f;
-            sb.append("<span class=\"pdf-text-line\" style=\"")
+        for (Word w : words) {
+            float leftPct = (w.x() / pageW) * 100f;
+            float topPct  = ((w.y() - w.height()) / pageH) * 100f;
+            float wPct    = (w.width() / pageW) * 100f;
+            float hPct    = (w.height() / pageH) * 100f;
+            sb.append("<span class=\"pdf-word\" data-cstart=\"")
+              .append(w.charStart())
+              .append("\" data-cend=\"")
+              .append(w.charEnd())
+              .append("\" style=\"")
               .append(String.format(Locale.US, "left:%.2f%%; top:%.2f%%; width:%.2f%%; height:%.2f%%;", leftPct, topPct, wPct, hPct))
               .append("\">")
-              .append(escapeHtml(tl.text()))
-              .append("</span>\n");
+              .append(escapeHtml(w.text()))
+              .append(" </span>\n");
         }
         return sb.toString();
     }
@@ -306,26 +335,26 @@ public class PdfReaderImpl implements EpubReader {
             top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: auto;
           }
-          .pdf-text-line {
+          .pdf-word {
             position: absolute;
             color: transparent;
-            white-space: pre;
+            white-space: nowrap;
             cursor: text;
-            font-family: Georgia, serif;
-            transform-origin: 0 0;
+            line-height: 1;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            user-select: text;
+            box-sizing: border-box;
           }
-          .pdf-text-line::selection {
+          .pdf-word::selection {
             background: rgba(43, 114, 219, 0.35);
           }
-          mark.pt-highlight {
+          .pdf-word.pt-highlight {
             background-color: rgba(255, 229, 143, 0.6) !important;
-            color: transparent !important;
-            border-radius: 2px;
+            border-radius: 2px !important;
+            box-shadow: 0 0 0 1px rgba(220, 180, 0, 0.3) !important;
           }
-          span.pt-underline {
-            text-decoration: underline !important;
-            text-decoration-color: #d46b08 !important;
-            text-decoration-thickness: 2.5px !important;
+          .pdf-word.pt-underline {
+            border-bottom: 2.5px solid #d46b08 !important;
           }
           .spine-line {
             width: 2px;
@@ -346,6 +375,17 @@ public class PdfReaderImpl implements EpubReader {
           }
         </style>
         <script>
+        document.addEventListener('click', function(e) {
+          var p = e.target;
+          while (p && p !== document.body) {
+            if (p.dataset && p.dataset.hlId) {
+              window.__ptLastClickedHlId = p.dataset.hlId;
+              return;
+            }
+            p = p.parentElement;
+          }
+        }, true);
+
         window.addEventListener('keydown', function(e) {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'PageDown' || e.key === 'PageUp') {
             e.preventDefault();
@@ -354,42 +394,24 @@ public class PdfReaderImpl implements EpubReader {
 
         window.__ptRestore = function(items) {
           if (!items || !items.length) return;
+          var words = document.querySelectorAll('.pdf-word');
           for (var i = 0; i < items.length; i++) {
             var h = items[i];
-            try {
-              var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-              var cur = 0, startNode = null, startOff = 0, endNode = null, endOff = 0;
-              var node;
-              while ((node = walker.nextNode())) {
-                var len = node.nodeValue.length;
-                if (!startNode && cur + len >= h.charStart) {
-                  startNode = node;
-                  startOff = Math.max(0, h.charStart - cur);
-                }
-                if (cur + len >= h.charEnd) {
-                  endNode = node;
-                  endOff = Math.min(len, h.charEnd - cur);
-                  break;
-                }
-                cur += len;
-              }
-              if (startNode && endNode) {
-                var range = document.createRange();
-                range.setStart(startNode, startOff);
-                range.setEnd(endNode, endOff);
-                var tag = (h.type === 'underline') ? 'span' : 'mark';
-                var cls = (h.type === 'underline') ? 'pt-underline' : 'pt-highlight';
-                var el = document.createElement(tag);
-                el.className = cls;
-                el.dataset.hlId = h.id;
-                if (h.color) el.style.setProperty((h.type === 'underline' ? 'text-decoration-color' : 'background-color'), h.color, 'important');
-                try { range.surroundContents(el); } catch(ex) {
-                  var fragment = range.extractContents();
-                  el.appendChild(fragment);
-                  range.insertNode(el);
+            var cls = (h.type === 'underline') ? 'pt-underline' : 'pt-highlight';
+            for (var j = 0; j < words.length; j++) {
+              var w = words[j];
+              var cs = parseInt(w.dataset.cstart);
+              var ce = parseInt(w.dataset.cend);
+              if (cs >= h.charStart && ce <= h.charEnd) {
+                w.classList.add(cls);
+                w.dataset.hlId = h.id;
+                if (h.type === 'underline') {
+                  if (h.color) w.style.setProperty('border-bottom-color', h.color, 'important');
+                } else {
+                  if (h.color) w.style.setProperty('background-color', h.color, 'important');
                 }
               }
-            } catch(err) { console.error('Restore highlight error', err); }
+            }
           }
         };
         </script>
@@ -561,27 +583,31 @@ public class PdfReaderImpl implements EpubReader {
                 "  var range = sel.getRangeAt(0);" +
                 "  var text = sel.toString();" +
                 "  if (!text || !text.trim()) return null;" +
-                "  var preRange = range.cloneRange();" +
-                "  preRange.selectNodeContents(document.body);" +
-                "  preRange.setEnd(range.startContainer, range.startOffset);" +
-                "  var charStart = preRange.toString().length;" +
-                "  var charEnd = charStart + text.length;" +
                 "  var id = 'hl_' + Date.now() + '_' + Math.floor(Math.random() * 10000);" +
-                "  var tag = ('" + type + "' === 'underline') ? 'span' : 'mark';" +
                 "  var cls = ('" + type + "' === 'underline') ? 'pt-underline' : 'pt-highlight';" +
-                "  var el = document.createElement(tag);" +
-                "  el.className = cls;" +
-                "  el.dataset.hlId = id;" +
-                "  el.style.setProperty(('" + type + "' === 'underline' ? 'text-decoration-color' : 'background-color'), '" + color + "', 'important');" +
-                "  try {" +
-                "    range.surroundContents(el);" +
-                "  } catch(e) {" +
-                "    var fragment = range.extractContents();" +
-                "    el.appendChild(fragment);" +
-                "    range.insertNode(el);" +
+                "  var words = document.querySelectorAll('.pdf-word');" +
+                "  var matched = [];" +
+                "  var firstChar = -1, lastChar = -1;" +
+                "  for (var i = 0; i < words.length; i++) {" +
+                "    var w = words[i];" +
+                "    if (range.intersectsNode(w)) {" +
+                "      w.classList.add(cls);" +
+                "      w.dataset.hlId = id;" +
+                "      if ('" + type + "' === 'underline') {" +
+                "        w.style.setProperty('border-bottom-color', '" + color + "', 'important');" +
+                "      } else {" +
+                "        w.style.setProperty('background-color', '" + color + "', 'important');" +
+                "      }" +
+                "      matched.push(w);" +
+                "      var cs = parseInt(w.dataset.cstart);" +
+                "      var ce = parseInt(w.dataset.cend);" +
+                "      if (firstChar === -1 || cs < firstChar) firstChar = cs;" +
+                "      if (ce > lastChar) lastChar = ce;" +
+                "    }" +
                 "  }" +
+                "  if (matched.length === 0) return null;" +
                 "  sel.removeAllRanges();" +
-                "  return id + '\t' + '" + type + "' + '\t' + '" + color + "' + '\t' + charStart + '\t' + charEnd + '\t' + text;" +
+                "  return id + '\t' + '" + type + "' + '\t' + '" + color + "' + '\t' + firstChar + '\t' + lastChar + '\t' + text;" +
                 "})();";
 
             Object res = view.getEngine().executeScript(script);
@@ -614,25 +640,62 @@ public class PdfReaderImpl implements EpubReader {
             String script =
                 "(function() {" +
                 "  var sel = window.getSelection();" +
-                "  if (!sel || !sel.anchorNode) return null;" +
-                "  var node = sel.anchorNode;" +
-                "  while (node && node !== document.body) {" +
-                "    if (node.dataset && node.dataset.hlId) {" +
-                "      var id = node.dataset.hlId;" +
-                "      var parent = node.parentNode;" +
-                "      while (node.firstChild) parent.insertBefore(node.firstChild, node);" +
-                "      parent.removeChild(node);" +
-                "      return id;" +
+                "  var ids = [];" +
+                "  if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {" +
+                "    var range = sel.getRangeAt(0);" +
+                "    var words = document.querySelectorAll('.pdf-word.pt-highlight, .pdf-word.pt-underline');" +
+                "    for (var i = 0; i < words.length; i++) {" +
+                "      if (range.intersectsNode(words[i])) {" +
+                "        var hid = words[i].dataset.hlId;" +
+                "        if (hid && ids.indexOf(hid) === -1) ids.push(hid);" +
+                "      }" +
                 "    }" +
-                "    node = node.parentNode;" +
                 "  }" +
-                "  return null;" +
+                "  if (ids.length === 0 && sel && sel.anchorNode) {" +
+                "    var p = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;" +
+                "    while (p && p !== document.body) {" +
+                "      if (p.dataset && p.dataset.hlId) {" +
+                "        ids.push(p.dataset.hlId); break;" +
+                "      }" +
+                "      p = p.parentElement;" +
+                "    }" +
+                "  }" +
+                "  if (ids.length === 0 && sel && sel.focusNode) {" +
+                "    var p = sel.focusNode.nodeType === 3 ? sel.focusNode.parentElement : sel.focusNode;" +
+                "    while (p && p !== document.body) {" +
+                "      if (p.dataset && p.dataset.hlId) {" +
+                "        ids.push(p.dataset.hlId); break;" +
+                "      }" +
+                "      p = p.parentElement;" +
+                "    }" +
+                "  }" +
+                "  if (ids.length === 0 && window.__ptLastClickedHlId) {" +
+                "    ids.push(window.__ptLastClickedHlId);" +
+                "  }" +
+                "  if (ids.length === 0) return null;" +
+                "  for (var k = 0; k < ids.length; k++) {" +
+                "    var targetId = ids[k];" +
+                "    var matching = document.querySelectorAll('[data-hl-id=\"' + targetId + '\"]');" +
+                "    for (var j = 0; j < matching.length; j++) {" +
+                "      var el = matching[j];" +
+                "      el.classList.remove('pt-highlight', 'pt-underline');" +
+                "      el.style.removeProperty('background-color');" +
+                "      el.style.removeProperty('border-bottom-color');" +
+                "      delete el.dataset.hlId;" +
+                "    }" +
+                "  }" +
+                "  window.__ptLastClickedHlId = null;" +
+                "  return ids.join(',');" +
                 "})();";
 
             Object res = view.getEngine().executeScript(script);
-            if (res instanceof String id && !id.isEmpty()) {
-                savedHighlights.removeIf(h -> Objects.equals(h.id(), id));
-                return id;
+            if (res instanceof String idStr && !idStr.isEmpty()) {
+                String[] ids = idStr.split(",");
+                for (String singleId : ids) {
+                    String clean = singleId.trim();
+                    savedHighlights.removeIf(h -> Objects.equals(h.id(), clean));
+                }
+                return idStr;
             }
         } catch (Exception e) {
             System.err.println("Failed to remove active PDF highlight: " + e.getMessage());

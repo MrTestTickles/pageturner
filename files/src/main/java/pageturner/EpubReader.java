@@ -282,22 +282,49 @@ class EpubReaderImpl implements EpubReader {
             String script =
                 "(function() {" +
                 "  var sel = window.getSelection();" +
-                "  var target = null;" +
-                "  if (sel && sel.anchorNode) {" +
-                "    var p = sel.anchorNode.parentElement;" +
+                "  var targets = [];" +
+                "  if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {" +
+                "    var range = sel.getRangeAt(0);" +
+                "    var all = document.querySelectorAll('.pt-highlight, .pt-underline');" +
+                "    for (var i = 0; i < all.length; i++) {" +
+                "      if (range.intersectsNode(all[i])) targets.push(all[i]);" +
+                "    }" +
+                "  }" +
+                "  if (targets.length === 0 && sel && sel.anchorNode) {" +
+                "    var p = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;" +
                 "    while (p && p !== document.body) {" +
                 "      if (p.classList && (p.classList.contains('pt-highlight') || p.classList.contains('pt-underline'))) {" +
-                "        target = p; break;" +
+                "        targets.push(p); break;" +
                 "      }" +
                 "      p = p.parentElement;" +
                 "    }" +
                 "  }" +
-                "  if (target) {" +
-                "    var id = target.dataset.hlId;" +
-                "    var parent = target.parentNode;" +
-                "    while (target.firstChild) parent.insertBefore(target.firstChild, target); " +
-                "    parent.removeChild(target);" +
-                "    return id;" +
+                "  if (targets.length === 0 && sel && sel.focusNode) {" +
+                "    var p = sel.focusNode.nodeType === 3 ? sel.focusNode.parentElement : sel.focusNode;" +
+                "    while (p && p !== document.body) {" +
+                "      if (p.classList && (p.classList.contains('pt-highlight') || p.classList.contains('pt-underline'))) {" +
+                "        targets.push(p); break;" +
+                "      }" +
+                "      p = p.parentElement;" +
+                "    }" +
+                "  }" +
+                "  if (targets.length === 0 && window.__ptLastClickedHighlight && document.body.contains(window.__ptLastClickedHighlight)) {" +
+                "    targets.push(window.__ptLastClickedHighlight);" +
+                "  }" +
+                "  if (targets.length > 0) {" +
+                "    var ids = [];" +
+                "    for (var i = 0; i < targets.length; i++) {" +
+                "      var t = targets[i];" +
+                "      var id = t.dataset.hlId;" +
+                "      if (id && ids.indexOf(id) === -1) ids.push(id);" +
+                "      var parent = t.parentNode;" +
+                "      if (parent) {" +
+                "        while (t.firstChild) parent.insertBefore(t.firstChild, t);" +
+                "        parent.removeChild(t);" +
+                "      }" +
+                "    }" +
+                "    window.__ptLastClickedHighlight = null;" +
+                "    return ids.join(',');" +
                 "  }" +
                 "  return null;" +
                 "})();";
@@ -441,6 +468,16 @@ class EpubReaderImpl implements EpubReader {
             "}" +
             "</style>" +
             "<script>" +
+            "document.addEventListener('click', function(e) {\n" +
+            "  var p = e.target;\n" +
+            "  while (p && p !== document.body) {\n" +
+            "    if (p.classList && (p.classList.contains('pt-highlight') || p.classList.contains('pt-underline'))) {\n" +
+            "      window.__ptLastClickedHighlight = p;\n" +
+            "      return;\n" +
+            "    }\n" +
+            "    p = p.parentElement;\n" +
+            "  }\n" +
+            "}, true);\n" +
             "// Suppress default webkit arrow scrolling to ensure instantaneous 2-page turns\n" +
             "window.addEventListener('keydown', function(e) {\n" +
             "  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'PageDown' || e.key === 'PageUp') {\n" +

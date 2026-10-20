@@ -1,17 +1,17 @@
-# smt
+# PageTurner
 
-A dual-page book reader and synchronized audiobook player built with JavaFX and Apache PDFBox. Supports EPUB and PDF formats with side-by-side spread layouts, persistent text highlighting, progress calculation, playlist navigation, and multi-book library management.
+A dual-page book reader and synchronized audiobook player built with JavaFX and Apache PDFBox. Supports EPUB and PDF formats with side-by-side spread layouts, persistent text highlighting and underlining, progress calculation, playlist navigation, and multi-book library management.
 
 ## Releases
 
-You can download the pre-built standalone JAR directly from the Releases page:
+You can download the pre-built standalone runnable JAR directly from the Releases page:
 
-- Release Download: https://github.com/MrTestTickles/smt/releases/download/v1.0.0/smt-1.0.0.jar
+- Release Download: https://github.com/MrTestTickles/pageturner/releases/download/v1.0.1/pageturner-1.0.0.jar
 
 To run the downloaded JAR:
 
 ```bash
-java -jar smt-1.0.0.jar
+java -jar pageturner-1.0.0.jar
 ```
 
 ## Features
@@ -19,8 +19,9 @@ java -jar smt-1.0.0.jar
 - Dual-Page Spread Layout: Renders two pages side by side with a central spine divider, paper shadows, and page numbers, replicating the feel of a physical book.
 - Instant Two-Page Turning: Flips two pages at a time using arrow keys or on-screen controls, eliminating slow vertical scrolling or column drift.
 - PDF and EPUB Support: Reads both EPUB and PDF documents seamlessly through a unified reader engine.
-- Coordinate-Mapped PDF Text Selection: Extracts precise line and word bounding boxes from PDF documents so text can be selected with the mouse, highlighted, or underlined directly over page images.
+- Precise PDF Word-Level Highlighting: Binds word bounding boxes and character offsets to render highlights directly over printed PDF text without margin displacement.
 - Highlighting and Underlining: Mark text with yellow highlights or orange underlines. Highlights are serialized and restored automatically when reopening a book.
+- Robust Clear Highlight Tool: Multi-tier selection and click detection ensures highlighted text or underlines can be removed consistently with a single click.
 - Synchronized Audiobook Player: Connect audio tracks to books. Supports uniform 2-minute seeking on single-track files and chapter skipping on multi-file playlists.
 - Library Outline (Cmd+L / Ctrl+L): Saves multiple books in a library outline with their last read page, total pages, progress percentage, paired audio track, and timestamp.
 - Background Pre-rendering: PDF pages are pre-rendered and cached in the background, ensuring smooth and instantaneous page flips.
@@ -36,7 +37,7 @@ java -jar smt-1.0.0.jar
     - Main.java: Entry point launcher for executable JAR.
     - PageTurnerApp.java: Main JavaFX user interface, player controls, and library dialog.
     - EpubReader.java: Interface and implementation for EPUB rendering.
-    - PdfReaderImpl.java: PDFBox rendering engine, text overlay layer, and pre-rendering cache.
+    - PdfReaderImpl.java: PDFBox rendering engine, word-level text overlay, and pre-rendering cache.
     - UnifiedBookReader.java: Dynamic router delegating to EPUB or PDF engines based on file type.
     - AudioPlayer.java: Audio playback engine for MP3, M4A, WAV, and OGG formats.
     - LibraryEntry.java: Immutable data model for saved book states.
@@ -71,7 +72,7 @@ To build a standalone executable JAR:
 mvn -f files/pom.xml clean package -DskipTests
 ```
 
-The resulting JAR will be generated in `files/target/smt-1.0.0.jar`.
+The resulting JAR will be generated in `files/target/pageturner-1.0.0.jar`.
 
 ## License
 

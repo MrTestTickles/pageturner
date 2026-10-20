@@ -632,8 +632,11 @@ public class PageTurnerApp extends Application {
 
     private void triggerClearHighlight() {
         String removedId = reader.removeActiveHighlight();
-        if (removedId != null) {
-            allHighlights.removeIf(h -> h.id().equals(removedId));
+        if (removedId != null && !removedId.isBlank()) {
+            for (String id : removedId.split(",")) {
+                String clean = id.trim();
+                allHighlights.removeIf(h -> h.id().equals(clean));
+            }
             saveCurrentState();
         }
     }
