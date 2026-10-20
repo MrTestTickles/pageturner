@@ -1,0 +1,6 @@
+target/
+*.class
+.DS_Store
+*.tmp
+dependency-reduced-pom.xml
+.pageturner/
